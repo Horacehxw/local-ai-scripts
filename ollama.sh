@@ -23,23 +23,24 @@ err()  { echo -e "${RED}[✗]${NC} $*"; exit 1; }
 MODELFILES_DIR="$HOME/.ollama_modelfiles"
 OPENCODE_CONFIG="$HOME/.config/opencode/opencode.json"
 OLLAMA_PID_FILE="$HOME/.ollama.pid"
+MODEL_CATALOG=$(cat <<'EOF'
+gemma4-moe|gemma4:26b-a4b-instruct-q4_K_M|18GB|65536|Gemma 4 26B MoE · 默认 · 视觉支持
+gemma4-dense|gemma4:31b-instruct-q4_K_M|20GB|65536|Gemma 4 31B Dense · 最高质量
+gemma4-edge|gemma4:e4b|4GB|32768|Gemma 4 E4B · 极快 · 轻量任务
+qwen-coder|qwen2.5-coder:32b|20GB|65536|Qwen2.5-Coder 32B · 最佳编码
+qwen3|qwen3:32b|20GB|131072|Qwen3 32B · 最佳中文 · /think 模式
+qwen3-fast|qwen3-coder-next|6GB|65536|Qwen3-Coder-Next MoE · 极快
+deepseek-r1|deepseek-r1:32b|20GB|65536|DeepSeek R1 32B · 推理/调试
+deepseek-r1-70b|deepseek-r1:70b|45GB|65536|DeepSeek R1 70B · 最强推理
+llama3.3|llama3.3:70b|40GB|65536|Llama 3.3 70B · GPT-4 级
+phi4|phi4:14b|9GB|16384|Phi-4 14B · STEM/数学
+EOF
+)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 模型目录 — 添加新模型只需在这里加一行
-# 格式: ["别名"]="base_model|大小|context_tokens|描述"
+# 格式: alias|base_model|大小|context_tokens|描述
 # ═══════════════════════════════════════════════════════════════════════════════
-declare -A MODELS=(
-  ["gemma4-moe"]="gemma4:26b-a4b-instruct-q4_K_M|18GB|65536|Gemma 4 26B MoE · 默认 · 视觉支持"
-  ["gemma4-dense"]="gemma4:31b-instruct-q4_K_M|20GB|65536|Gemma 4 31B Dense · 最高质量"
-  ["gemma4-edge"]="gemma4:e4b|4GB|32768|Gemma 4 E4B · 极快 · 轻量任务"
-  ["qwen-coder"]="qwen2.5-coder:32b|20GB|65536|Qwen2.5-Coder 32B · 最佳编码"
-  ["qwen3"]="qwen3:32b|20GB|131072|Qwen3 32B · 最佳中文 · /think 模式"
-  ["qwen3-fast"]="qwen3-coder-next|6GB|65536|Qwen3-Coder-Next MoE · 极快"
-  ["deepseek-r1"]="deepseek-r1:32b|20GB|65536|DeepSeek R1 32B · 推理/调试"
-  ["deepseek-r1-70b"]="deepseek-r1:70b|45GB|65536|DeepSeek R1 70B · 最强推理"
-  ["llama3.3"]="llama3.3:70b|40GB|65536|Llama 3.3 70B · GPT-4 级"
-  ["phi4"]="phi4:14b|9GB|16384|Phi-4 14B · STEM/数学"
-)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 辅助函数
@@ -49,12 +50,43 @@ is_running() {
   curl -s http://localhost:11434/api/version &>/dev/null
 }
 
+model_installed_exact() {
+  local model="$1"
+  ollama list 2>/dev/null | awk 'NR == 1 && $1 == "NAME" {next} NF {print $1}' | grep -Fxq "$model"
+}
+
+model_aliases() {
+  printf '%s\n' "$MODEL_CATALOG" | cut -d'|' -f1 | sort
+}
+
+get_model_spec() {
+  local alias="$1"
+  printf '%s\n' "$MODEL_CATALOG" | awk -F'|' -v alias="$alias" '$1 == alias {print; found=1} END {exit found ? 0 : 1}'
+}
+
 get_current_model() {
   if [[ -f "$OPENCODE_CONFIG" ]]; then
-    python3 -c "import json; d=json.load(open('$OPENCODE_CONFIG')); print(d.get('model','未设置'))" 2>/dev/null || echo "未知"
+    python3 -c "import json; d=json.load(open('$OPENCODE_CONFIG')); print(d.get('model',''))" 2>/dev/null
   else
-    echo "配置文件不存在"
+    return 1
   fi
+}
+
+start_server() {
+  [[ -f "$HOME/.ollama_env" ]] && source "$HOME/.ollama_env"
+  nohup ollama serve > "$HOME/.ollama.log" 2>&1 &
+  echo $! > "$OLLAMA_PID_FILE"
+}
+
+wait_for_server() {
+  local attempt
+  for attempt in $(seq 1 20); do
+    if is_running; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
 }
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -70,41 +102,52 @@ cmd_start() {
     log "Ollama 已在运行"
   else
     info "启动 Ollama 服务（后台）..."
-    # 用 nohup 后台运行，日志写到 ~/.ollama.log
-    nohup ollama serve > "$HOME/.ollama.log" 2>&1 &
-    echo $! > "$OLLAMA_PID_FILE"
+    start_server
 
     info "等待服务就绪..."
-    for i in {1..20}; do
-      if is_running; then
-        log "Ollama 服务已启动 (PID: $(cat "$OLLAMA_PID_FILE"))"
-        break
-      fi
-      sleep 1
-      if [[ $i -eq 20 ]]; then
-        err "服务启动超时，查看日志: cat ~/.ollama.log"
-      fi
-    done
+    wait_for_server || err "服务启动超时，查看日志: cat ~/.ollama.log"
+    log "Ollama 服务已启动 (PID: $(cat "$OLLAMA_PID_FILE"))"
   fi
 
   # 显示当前配置的模型
-  CURRENT_MODEL=$(get_current_model)
+  CURRENT_MODEL=""
+  if CURRENT_MODEL=$(get_current_model); then
+    :
+  elif [[ -f "$OPENCODE_CONFIG" ]]; then
+    warn "OpenCode 配置无法解析，跳过模型预热"
+  else
+    warn "OpenCode 配置不存在，请先运行 setup.sh"
+  fi
   echo ""
-  echo -e "当前模型: ${CYAN}$CURRENT_MODEL${NC}"
+  echo -e "当前模型: ${CYAN}${CURRENT_MODEL:-未设置}${NC}"
 
   # 预热模型（发一个空请求让模型加载进内存）
-  MODEL_SHORT=$(echo "$CURRENT_MODEL" | sed 's|ollama/||')
-  if [[ -n "$MODEL_SHORT" && "$MODEL_SHORT" != "未知" ]]; then
-    info "预热模型 $MODEL_SHORT（首次加载需要几秒）..."
-    ollama run "$MODEL_SHORT" "" --nowordwrap 2>/dev/null | head -1 || true
-    log "模型已加载到内存"
+  MODEL_SHORT=""
+  if [[ "$CURRENT_MODEL" == ollama/* ]]; then
+    MODEL_SHORT="${CURRENT_MODEL#ollama/}"
+  fi
+  if [[ -n "$MODEL_SHORT" ]]; then
+    if ! model_installed_exact "$MODEL_SHORT"; then
+      warn "当前模型 $MODEL_SHORT 未安装，跳过预热"
+    else
+      info "预热模型 $MODEL_SHORT（首次加载需要几秒）..."
+      if ollama run "$MODEL_SHORT" "" --nowordwrap >/dev/null 2>&1; then
+        log "模型已加载到内存"
+      else
+        warn "模型预热失败，请手动检查: ollama run $MODEL_SHORT"
+      fi
+    fi
+  else
+    warn "当前未配置有效的 Ollama 模型，跳过预热"
   fi
 
   # 提示用户下一步
   echo ""
   echo -e "${BOLD}Ollama 已就绪。现在可以:${NC}"
   echo -e "  ${CYAN}cd ~/your-project && opencode${NC}   # 启动编码 agent"
-  echo -e "  ${CYAN}ollama run $MODEL_SHORT${NC}         # 直接终端对话"
+  if [[ -n "$MODEL_SHORT" ]]; then
+    echo -e "  ${CYAN}ollama run $MODEL_SHORT${NC}         # 直接终端对话"
+  fi
   echo -e "  ${CYAN}./ollama.sh stop${NC}                # 关闭服务"
   echo ""
 }
@@ -147,7 +190,12 @@ cmd_stop() {
   sleep 1
   if is_running; then
     warn "服务仍在运行，强制终止..."
-    pkill -9 -f "ollama" 2>/dev/null || true
+    pkill -9 -f "ollama serve" 2>/dev/null || true
+    sleep 1
+  fi
+
+  if is_running; then
+    warn "Ollama 服务仍在运行，请检查: cat ~/.ollama.log"
   else
     log "Ollama 已完全停止，内存已释放"
   fi
@@ -206,16 +254,17 @@ cmd_switch() {
   printf "  %-16s %-8s %-10s  %s\n" "别名" "大小" "Context" "描述"
   echo "  ────────────────────────────────────────────────────────────────"
 
-  for alias in $(echo "${!MODELS[@]}" | tr ' ' '\n' | sort); do
-    IFS='|' read -r base size ctx desc <<< "${MODELS[$alias]}"
+  while IFS='|' read -r alias base size ctx desc; do
     # 标记已安装
-    if ollama list 2>/dev/null | grep -qF "${base%%:*}" 2>/dev/null; then
+    if model_installed_exact "$base"; then
       STATUS="${GREEN}[已下载]${NC}"
     else
       STATUS="${YELLOW}[未下载]${NC}"
     fi
     printf "  ${CYAN}%-16s${NC} %-8s %-10s  %s %b\n" "$alias" "$size" "${ctx}t" "$desc" "$STATUS"
-  done
+  done << EOF
+$MODEL_CATALOG
+EOF
   echo ""
 
   # 接收输入
@@ -227,11 +276,11 @@ cmd_switch() {
   fi
 
   # 验证
-  if [[ -z "${MODELS[$CHOSEN]+x}" ]]; then
+  if ! SPEC=$(get_model_spec "$CHOSEN"); then
     err "未知别名: $CHOSEN。请从上方列表选择。"
   fi
 
-  IFS='|' read -r BASE_MODEL SIZE CTX DESC <<< "${MODELS[$CHOSEN]}"
+  IFS='|' read -r _ BASE_MODEL SIZE CTX DESC <<< "$SPEC"
 
   echo ""
   echo -e "切换到: ${BOLD}$CHOSEN${NC}  ($DESC)"
@@ -241,18 +290,15 @@ cmd_switch() {
   # 确保服务在运行（下载和注册需要）
   if ! is_running; then
     info "需要启动 Ollama 服务来注册模型..."
-    [[ -f "$HOME/.ollama_env" ]] && source "$HOME/.ollama_env"
-    nohup ollama serve > "$HOME/.ollama.log" 2>&1 &
-    echo $! > "$OLLAMA_PID_FILE"
-    sleep 3
+    start_server
+    wait_for_server || err "服务启动超时，查看日志: cat ~/.ollama.log"
     STOP_AFTER=true
   else
     STOP_AFTER=false
   fi
 
   # 下载（若未下载）
-  BASE_PREFIX="${BASE_MODEL%%:*}"
-  if ! ollama list 2>/dev/null | grep -qF "$BASE_PREFIX"; then
+  if ! model_installed_exact "$BASE_MODEL"; then
     warn "模型 $BASE_MODEL 未下载 (~$SIZE)"
     read -r -p "$(echo -e ${YELLOW}[?]${NC}) 现在下载？[Y/n] " dl
     dl=${dl:-Y}
@@ -344,7 +390,7 @@ cmd_help() {
   echo -e "  ${CYAN}switch${NC}             交互式切换模型"
   echo -e "  ${CYAN}switch <别名>${NC}      直接切换到指定模型"
   echo ""
-  echo -e "  可用模型别名: $(echo "${!MODELS[@]}" | tr ' ' '\n' | sort | tr '\n' ' ')"
+  echo -e "  可用模型别名: $(model_aliases | tr '\n' ' ')"
   echo ""
 }
 

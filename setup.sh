@@ -20,6 +20,23 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODEL_BASE="gemma4:26b-a4b-instruct-q4_K_M"
 MODELFILES_DIR="$HOME/.ollama_modelfiles"
 OPENCODE_CONFIG="$HOME/.config/opencode/opencode.json"
+STARTED_TEMP=false
+OLLAMA_PID=""
+
+cleanup_temp_ollama() {
+  if [[ "$STARTED_TEMP" == "true" && -n "$OLLAMA_PID" ]]; then
+    kill "$OLLAMA_PID" 2>/dev/null || true
+    wait "$OLLAMA_PID" 2>/dev/null || true
+    STARTED_TEMP=false
+  fi
+}
+
+model_installed_exact() {
+  local model="$1"
+  ollama list 2>/dev/null | awk 'NR == 1 && $1 == "NAME" {next} NF {print $1}' | grep -Fxq "$model"
+}
+
+trap cleanup_temp_ollama EXIT INT TERM
 
 echo -e "${BOLD}"
 cat << 'BANNER'
@@ -107,7 +124,7 @@ else
   STARTED_TEMP=false
 fi
 
-if ollama list 2>/dev/null | grep -q "gemma4"; then
+if model_installed_exact "$MODEL_BASE"; then
   log "Gemma 4 模型已存在，跳过下载"
 else
   warn "即将下载 ~18GB，请确保网络和磁盘空间充足"
@@ -154,8 +171,7 @@ log "gemma4-agent (64k ctx) 和 gemma4-chat (32k ctx) 已创建"
 
 # 停止临时服务
 if [[ "${STARTED_TEMP:-false}" == "true" ]]; then
-  kill "$OLLAMA_PID" 2>/dev/null || true
-  wait "$OLLAMA_PID" 2>/dev/null || true
+  cleanup_temp_ollama
   info "临时 Ollama 服务已停止"
 fi
 
