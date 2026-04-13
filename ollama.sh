@@ -24,7 +24,7 @@ MODELFILES_DIR="$HOME/.ollama_modelfiles"
 OPENCODE_CONFIG="$HOME/.config/opencode/opencode.json"
 OLLAMA_PID_FILE="$HOME/.ollama.pid"
 MODEL_CATALOG=$(cat <<'EOF'
-gemma4-moe|gemma4:26b-a4b-instruct-q4_K_M|18GB|65536|Gemma 4 26B MoE · 默认 · 视觉支持
+gemma4-moe|gemma4:26b|18GB|65536|Gemma 4 26B MoE · 默认 · 视觉支持
 gemma4-dense|gemma4:31b-instruct-q4_K_M|20GB|65536|Gemma 4 31B Dense · 最高质量
 gemma4-edge|gemma4:e4b|4GB|32768|Gemma 4 E4B · 极快 · 轻量任务
 qwen-coder|qwen2.5-coder:32b|20GB|65536|Qwen2.5-Coder 32B · 最佳编码

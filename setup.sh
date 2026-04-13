@@ -17,7 +17,7 @@ err()  { echo -e "${RED}[✗]${NC} $*"; exit 1; }
 step() { echo -e "\n${BOLD}${CYAN}━━━ $* ━━━${NC}"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MODEL_BASE="gemma4:26b-a4b-instruct-q4_K_M"
+MODEL_BASE="gemma4:26b"
 MODELFILES_DIR="$HOME/.ollama_modelfiles"
 OPENCODE_CONFIG="$HOME/.config/opencode/opencode.json"
 STARTED_TEMP=false

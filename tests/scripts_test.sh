@@ -53,6 +53,18 @@ assert_file_not_has_line() {
   fi
 }
 
+assert_file_has_line() {
+  local file="$1"
+  local expected="$2"
+  local message="$3"
+  if [[ -f "$file" ]] && grep -Fxq -- "$expected" "$file"; then
+    pass "$message"
+  else
+    fail "$message"
+    [[ -f "$file" ]] && sed -n '1,120p' "$file"
+  fi
+}
+
 new_env() {
   local name="$1"
   local dir="$TEST_ROOT/$name"
@@ -164,7 +176,7 @@ EOF
   chmod +x "$bin_dir/curl" "$bin_dir/ollama"
 
   if PATH="$bin_dir:/usr/bin:/bin" HOME="$home_dir" bash "$REPO_DIR/setup.sh" >"$out" 2>&1 <<<'Y'; then
-    assert_file_contains "$state_dir/models.txt" "gemma4:26b-a4b-instruct-q4_K_M" "setup.sh pulls the exact Gemma base model"
+    assert_file_has_line "$state_dir/models.txt" "gemma4:26b" "setup.sh pulls the exact Gemma base model"
   else
     fail "setup.sh completes when only another Gemma variant is preinstalled"
     sed -n '1,160p' "$out"
