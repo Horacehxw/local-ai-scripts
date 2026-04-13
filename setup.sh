@@ -20,6 +20,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODEL_BASE="gemma4:26b"
 MODELFILES_DIR="$HOME/.ollama_modelfiles"
 OPENCODE_CONFIG="$HOME/.config/opencode/opencode.json"
+if [[ -n "${OLLAMA_BIN:-}" ]]; then
+  :
+elif [[ -x "/Applications/Ollama.app/Contents/Resources/ollama" ]]; then
+  OLLAMA_BIN="/Applications/Ollama.app/Contents/Resources/ollama"
+else
+  OLLAMA_BIN="ollama"
+fi
 STARTED_TEMP=false
 OLLAMA_PID=""
 
@@ -33,7 +40,7 @@ cleanup_temp_ollama() {
 
 model_installed_exact() {
   local model="$1"
-  ollama list 2>/dev/null | awk 'NR == 1 && $1 == "NAME" {next} NF {print $1}' | grep -Fxq "$model"
+  "$OLLAMA_BIN" list 2>/dev/null | awk 'NR == 1 && $1 == "NAME" {next} NF {print $1}' | grep -Fxq "$model"
 }
 
 trap cleanup_temp_ollama EXIT INT TERM
@@ -95,6 +102,8 @@ cat > "$OLLAMA_ENV" << 'EOF'
 # Ollama 性能配置 (Apple Silicon)
 export OLLAMA_KEEP_ALIVE=-1        # 模型常驻内存，避免重复加载
 export OLLAMA_FLASH_ATTENTION=1    # Metal Flash Attention 加速
+export OLLAMA_KV_CACHE_TYPE=q8_0      # Metal 推荐的 KV cache 配置
+export GGML_METAL_TENSOR_DISABLE=1  # 规避 macOS 26.x 上的 Metal tensor 编译崩溃
 export OLLAMA_NUM_PARALLEL=2       # 最多 2 个并发请求
 export OLLAMA_MAX_LOADED_MODELS=3  # 最多同时加载 3 个模型
 EOF
@@ -116,7 +125,7 @@ step "4/6 下载 Gemma 4 26B MoE (~18GB)"
 # 启动临时服务用于下载
 if ! curl -s http://localhost:11434/api/version &>/dev/null; then
   info "临时启动 Ollama 服务用于下载..."
-  ollama serve &>/tmp/ollama_setup.log &
+  "$OLLAMA_BIN" serve &>/tmp/ollama_setup.log &
   OLLAMA_PID=$!
   sleep 3
   STARTED_TEMP=true
@@ -131,7 +140,7 @@ else
   read -r -p "$(echo -e ${YELLOW}[?]${NC}) 开始下载？[Y/n] " confirm
   confirm=${confirm:-Y}
   if [[ "$confirm" =~ ^[Yy]$ ]]; then
-    ollama pull "$MODEL_BASE"
+    "$OLLAMA_BIN" pull "$MODEL_BASE"
     log "下载完成"
   else
     warn "已跳过。之后可手动运行: ollama pull $MODEL_BASE"
@@ -165,8 +174,8 @@ PARAMETER top_k 64
 PARAMETER repeat_penalty 1.0
 EOF
 
-ollama create gemma4-agent -f "$MODELFILES_DIR/gemma4-agent"
-ollama create gemma4-chat  -f "$MODELFILES_DIR/gemma4-chat"
+"$OLLAMA_BIN" create gemma4-agent -f "$MODELFILES_DIR/gemma4-agent"
+"$OLLAMA_BIN" create gemma4-chat  -f "$MODELFILES_DIR/gemma4-chat"
 log "gemma4-agent (64k ctx) 和 gemma4-chat (32k ctx) 已创建"
 
 # 停止临时服务
