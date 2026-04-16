@@ -20,13 +20,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODEL_BASE="gemma4:26b"
 MODELFILES_DIR="$HOME/.ollama_modelfiles"
 OPENCODE_CONFIG="$HOME/.config/opencode/opencode.json"
-if [[ -n "${OLLAMA_BIN:-}" ]]; then
-  :
-elif [[ -x "/Applications/Ollama.app/Contents/Resources/ollama" ]]; then
-  OLLAMA_BIN="/Applications/Ollama.app/Contents/Resources/ollama"
-else
-  OLLAMA_BIN="ollama"
-fi
+OLLAMA_PATCHED_BIN="${OLLAMA_PATCHED_BIN:-/tmp/ollama-tensor-fix/dist/darwin-arm64/ollama}"
+OLLAMA_APP_BIN="${OLLAMA_APP_BIN:-/Applications/Ollama.app/Contents/Resources/ollama}"
+
+resolve_ollama_bin() {
+  if [[ -n "${OLLAMA_BIN:-}" ]]; then
+    printf '%s\n' "$OLLAMA_BIN"
+  elif [[ -x "$OLLAMA_PATCHED_BIN" ]]; then
+    printf '%s\n' "$OLLAMA_PATCHED_BIN"
+  elif command -v ollama &>/dev/null; then
+    command -v ollama
+  elif [[ -x "$OLLAMA_APP_BIN" ]]; then
+    printf '%s\n' "$OLLAMA_APP_BIN"
+  else
+    printf '%s\n' "ollama"
+  fi
+}
+
+OLLAMA_BIN="$(resolve_ollama_bin)"
 STARTED_TEMP=false
 OLLAMA_PID=""
 
@@ -102,10 +113,11 @@ cat > "$OLLAMA_ENV" << 'EOF'
 # Ollama 性能配置 (Apple Silicon)
 export OLLAMA_KEEP_ALIVE=-1        # 模型常驻内存，避免重复加载
 export OLLAMA_FLASH_ATTENTION=1    # Metal Flash Attention 加速
-export OLLAMA_KV_CACHE_TYPE=q8_0      # Metal 推荐的 KV cache 配置
-export GGML_METAL_TENSOR_DISABLE=1  # 规避 macOS 26.x 上的 Metal tensor 编译崩溃
-export OLLAMA_NUM_PARALLEL=2       # 最多 2 个并发请求
+export OLLAMA_KV_CACHE_TYPE=f16    # 单请求性能最优的 KV cache 配置
+export OLLAMA_NUM_PARALLEL=1       # 单用户 chat/coding 的最低延迟配置
 export OLLAMA_MAX_LOADED_MODELS=3  # 最多同时加载 3 个模型
+export OPENCODE_ENABLE_EXA=1       # 为 OpenCode 启用内置 websearch 工具
+# export GGML_METAL_TENSOR_DISABLE=1  # 仅在旧版 stock Ollama 上启用兼容绕过
 EOF
 
 # 写入 shell rc（避免重复）
@@ -147,15 +159,15 @@ else
   fi
 fi
 
-# ── Step 5: 创建 Modelfile（64k context）────────────────────────────────────
+# ── Step 5: 创建 Modelfile（Gemma 4 26B 使用 256k context）───────────────────
 step "5/6 创建优化 Modelfile"
 
 mkdir -p "$MODELFILES_DIR"
 
-# gemma4-agent：给 OpenCode 用（64k context，防工具调用截断）
+# gemma4-agent：给 OpenCode 用（256k context，上限拉满）
 cat > "$MODELFILES_DIR/gemma4-agent" << EOF
 FROM $MODEL_BASE
-PARAMETER num_ctx 65536
+PARAMETER num_ctx 262144
 PARAMETER num_predict 8192
 PARAMETER temperature 1.0
 PARAMETER top_p 0.95
@@ -176,7 +188,7 @@ EOF
 
 "$OLLAMA_BIN" create gemma4-agent -f "$MODELFILES_DIR/gemma4-agent"
 "$OLLAMA_BIN" create gemma4-chat  -f "$MODELFILES_DIR/gemma4-chat"
-log "gemma4-agent (64k ctx) 和 gemma4-chat (32k ctx) 已创建"
+log "gemma4-agent (256k ctx) 和 gemma4-chat (32k ctx) 已创建"
 
 # 停止临时服务
 if [[ "${STARTED_TEMP:-false}" == "true" ]]; then
@@ -212,17 +224,42 @@ cat > "$OPENCODE_CONFIG" << 'EOF'
       "models": {
         "gemma4-agent": {
           "name": "gemma4-agent",
-          "contextLength": 65536
+          "contextLength": 262144,
+          "attachment": true,
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          }
         },
         "gemma4-chat": {
           "name": "gemma4-chat",
-          "contextLength": 32768
+          "contextLength": 32768,
+          "attachment": true,
+          "modalities": {
+            "input": ["text", "image"],
+            "output": ["text"]
+          }
         }
       }
     }
   },
   "autoshare": false,
-  "autoapprove": false
+  "permission": {
+    "websearch": "allow",
+    "webfetch": "allow"
+  },
+  "mcp": {
+    "context7": {
+      "type": "remote",
+      "url": "https://mcp.context7.com/mcp",
+      "enabled": true
+    },
+    "gh_grep": {
+      "type": "remote",
+      "url": "https://mcp.grep.app",
+      "enabled": true
+    }
+  }
 }
 EOF
 

@@ -24,19 +24,31 @@ MODELFILES_DIR="$HOME/.ollama_modelfiles"
 OPENCODE_CONFIG="$HOME/.config/opencode/opencode.json"
 OLLAMA_PID_FILE="$HOME/.ollama.pid"
 OLLAMA_LOG_FILE="$HOME/.ollama.log"
-if [[ -n "${OLLAMA_BIN:-}" ]]; then
-  :
-elif [[ -x "/Applications/Ollama.app/Contents/Resources/ollama" ]]; then
-  OLLAMA_BIN="/Applications/Ollama.app/Contents/Resources/ollama"
-else
-  OLLAMA_BIN="ollama"
-fi
+OLLAMA_PATCHED_BIN="${OLLAMA_PATCHED_BIN:-/tmp/ollama-tensor-fix/dist/darwin-arm64/ollama}"
+OLLAMA_APP_BIN="${OLLAMA_APP_BIN:-/Applications/Ollama.app/Contents/Resources/ollama}"
+
+resolve_ollama_bin() {
+  if [[ -n "${OLLAMA_BIN:-}" ]]; then
+    printf '%s\n' "$OLLAMA_BIN"
+  elif [[ -x "$OLLAMA_PATCHED_BIN" ]]; then
+    printf '%s\n' "$OLLAMA_PATCHED_BIN"
+  elif command -v ollama &>/dev/null; then
+    command -v ollama
+  elif [[ -x "$OLLAMA_APP_BIN" ]]; then
+    printf '%s\n' "$OLLAMA_APP_BIN"
+  else
+    printf '%s\n' "ollama"
+  fi
+}
+
+OLLAMA_BIN="$(resolve_ollama_bin)"
 MODEL_CATALOG=$(cat <<'EOF'
 gemma4-moe|gemma4:26b|18GB|65536|Gemma 4 26B MoE · 默认 · 视觉支持
 gemma4-dense|gemma4:31b-instruct-q4_K_M|20GB|65536|Gemma 4 31B Dense · 最高质量
 gemma4-edge|gemma4:e4b|4GB|32768|Gemma 4 E4B · 极快 · 轻量任务
 qwen-coder|qwen2.5-coder:32b|20GB|65536|Qwen2.5-Coder 32B · 最佳编码
 qwen3|qwen3:32b|20GB|131072|Qwen3 32B · 最佳中文 · /think 模式
+qwen35-a3b|qwen3.5:35b-a3b|23GB|131072|Qwen3.5 35B-A3B · MoE · 强工具调用
 qwen3-fast|qwen3-coder-next|6GB|65536|Qwen3-Coder-Next MoE · 极快
 deepseek-r1|deepseek-r1:32b|20GB|65536|DeepSeek R1 32B · 推理/调试
 deepseek-r1-70b|deepseek-r1:70b|45GB|65536|DeepSeek R1 70B · 最强推理
@@ -80,6 +92,18 @@ get_model_spec() {
   printf '%s\n' "$MODEL_CATALOG" | awk -F'|' -v alias="$alias" '$1 == alias {print; found=1} END {exit found ? 0 : 1}'
 }
 
+model_supports_image_inputs() {
+  local alias="$1"
+  case "$alias" in
+    gemma4-*|qwen35-a3b)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 get_current_model() {
   if [[ -f "$OPENCODE_CONFIG" ]]; then
     python3 -c "import json; d=json.load(open('$OPENCODE_CONFIG')); print(d.get('model',''))" 2>/dev/null
@@ -89,11 +113,26 @@ get_current_model() {
 }
 
 start_server() {
-  [[ -f "$HOME/.ollama_env" ]] && source "$HOME/.ollama_env"
+  local tensor_disable_pinned=false
+  if [[ -f "$HOME/.ollama_env" ]]; then
+    source "$HOME/.ollama_env"
+    if grep -Eq '^[[:space:]]*export[[:space:]]+GGML_METAL_TENSOR_DISABLE=' "$HOME/.ollama_env"; then
+      tensor_disable_pinned=true
+    fi
+  fi
   : "${OLLAMA_FLASH_ATTENTION:=1}"
-  : "${OLLAMA_KV_CACHE_TYPE:=q8_0}"
-  : "${GGML_METAL_TENSOR_DISABLE:=1}"
-  export OLLAMA_FLASH_ATTENTION OLLAMA_KV_CACHE_TYPE GGML_METAL_TENSOR_DISABLE
+  : "${OLLAMA_KV_CACHE_TYPE:=f16}"
+  : "${OLLAMA_NUM_PARALLEL:=1}"
+  export OLLAMA_FLASH_ATTENTION OLLAMA_KV_CACHE_TYPE OLLAMA_NUM_PARALLEL
+  if [[ "$tensor_disable_pinned" == "true" ]]; then
+    export GGML_METAL_TENSOR_DISABLE
+  elif [[ "$OLLAMA_BIN" == "$OLLAMA_PATCHED_BIN" ]]; then
+    unset GGML_METAL_TENSOR_DISABLE
+  elif [[ -n "${GGML_METAL_TENSOR_DISABLE:-}" ]]; then
+    export GGML_METAL_TENSOR_DISABLE
+  else
+    export GGML_METAL_TENSOR_DISABLE=1
+  fi
   nohup "$OLLAMA_BIN" serve > "$OLLAMA_LOG_FILE" 2>&1 &
   echo $! > "$OLLAMA_PID_FILE"
 }
@@ -382,21 +421,38 @@ EOF
 
   # 更新 OpenCode 配置
   if [[ -f "$OPENCODE_CONFIG" ]]; then
+    if model_supports_image_inputs "$CHOSEN"; then
+      IMAGE_SUPPORT_PY=True
+    else
+      IMAGE_SUPPORT_PY=False
+    fi
     python3 - << PYEOF
 import json
 
 path = "$OPENCODE_CONFIG"
 alias = "$CHOSEN"
 ctx = $CTX
+image_support = ${IMAGE_SUPPORT_PY}
 
 with open(path) as f:
     cfg = json.load(f)
 
 cfg["model"] = f"ollama/{alias}"
-cfg.setdefault("provider", {}).setdefault("ollama", {}).setdefault("models", {})[alias] = {
-    "name": alias,
-    "contextLength": ctx
-}
+cfg.pop("autoapprove", None)
+models = cfg.setdefault("provider", {}).setdefault("ollama", {}).setdefault("models", {})
+entry = models.get(alias, {})
+entry["name"] = alias
+entry["contextLength"] = ctx
+if image_support:
+    entry["attachment"] = True
+    entry["modalities"] = {
+        "input": ["text", "image"],
+        "output": ["text"],
+    }
+else:
+    entry.pop("attachment", None)
+    entry.pop("modalities", None)
+models[alias] = entry
 
 with open(path, "w") as f:
     json.dump(cfg, f, indent=2)

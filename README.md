@@ -7,6 +7,8 @@ This repository contains two Bash scripts for running a local Ollama-based setup
 
 The scripts are designed for a local workflow where Ollama is not configured as a login service. You start it when you need it, and stop it when you want to free memory.
 
+When present, the scripts now prefer the patched local Ollama build at `/tmp/ollama-tensor-fix/dist/darwin-arm64/ollama`, which restores the full Metal tensor path on this machine. They fall back to the system `ollama` binary only if that patched build is unavailable.
+
 ## What Each Script Does
 
 ### `setup.sh`
@@ -23,7 +25,7 @@ It does the following:
 6. Writes Ollama performance environment variables to `~/.ollama_env`.
 7. Optionally downloads the default base model: `gemma4:26b`.
 8. Creates two local Ollama model aliases:
-   - `gemma4-agent`: 64k context, intended for OpenCode
+   - `gemma4-agent`: 256k context, intended for OpenCode
    - `gemma4-chat`: 32k context, intended for general chat
 9. Installs or updates `opencode-ai`.
 10. Writes OpenCode config to `~/.config/opencode/opencode.json`.
@@ -60,6 +62,30 @@ These scripts assume:
 
 The default setup is centered around Ollama and OpenCode. If you do not use OpenCode, parts of the configuration may be unnecessary for your workflow.
 
+The default runtime profile is optimized for single-user chat/coding:
+
+- `OLLAMA_FLASH_ATTENTION=1`
+- `OLLAMA_KV_CACHE_TYPE=f16`
+- `OLLAMA_NUM_PARALLEL=1`
+- `OPENCODE_ENABLE_EXA=1`
+
+Benchmark notes and measurements for this choice are recorded in [docs/experiments/2026-04-15-gemma4-single-request-performance.md](docs/experiments/2026-04-15-gemma4-single-request-performance.md).
+
+OpenCode is also configured for network-backed discovery by default:
+
+- built-in `websearch`
+- built-in `webfetch`
+- `context7` MCP for docs search
+- `gh_grep` MCP for public GitHub code search
+
+For multimodal models such as `gemma4-agent`, OpenCode is also configured to accept image attachments. The generated model entries declare:
+
+- `attachment: true`
+- `modalities.input: ["text", "image"]`
+- `modalities.output: ["text"]`
+
+In practice, after starting `opencode`, you can attach an image or paste an image path into the prompt when using a model that supports vision.
+
 ## First-Time Setup
 
 Make the scripts executable if needed:
@@ -79,6 +105,7 @@ During setup:
 - you may be prompted to download the default Gemma base model
 - the script writes shell config entries for `~/.ollama_env`
 - OpenCode is configured to use `ollama/gemma4-agent`
+- the generated `~/.ollama_env` defaults to the single-request performance profile
 
 After setup, open a new shell or reload your shell config:
 
@@ -255,6 +282,12 @@ Then confirm:
 
 ```bash
 cat ~/.ollama_env
+```
+
+If you intentionally fall back to an older stock Ollama runtime and need the old Metal compatibility workaround, uncomment this line in `~/.ollama_env`:
+
+```bash
+export GGML_METAL_TENSOR_DISABLE=1
 ```
 
 ## Repo Verification
