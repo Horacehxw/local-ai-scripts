@@ -26,7 +26,7 @@ It does the following:
 7. Optionally downloads the default base model: `gemma4:26b`.
 8. Creates two local Ollama model aliases:
    - `gemma4-agent`: 256k context, intended for OpenCode
-   - `gemma4-chat`: 32k context, intended for general chat
+   - `gemma4-chat`: 256k context, intended for general chat
 9. Installs or updates `opencode-ai`.
 10. Writes OpenCode config to `~/.config/opencode/opencode.json`.
 

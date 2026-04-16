@@ -529,6 +529,62 @@ EOF
   fi
 }
 
+test_setup_uses_256k_context_for_gemma4_chat() {
+  local dir
+  dir="$(new_env setup_gemma4_chat_256k)"
+  write_common_stubs "$dir"
+
+  local bin_dir="$dir/bin"
+  local state_dir="$dir/state"
+  local home_dir="$dir/home"
+  local out="$dir/out.txt"
+  local captured_modelfile="$state_dir/gemma4-chat.modelfile"
+
+  printf 'gemma4:26b\n' > "$state_dir/models.txt"
+
+  cat > "$bin_dir/curl" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${*: -1}" == "http://localhost:11434/api/version" ]]; then
+  echo '{"version":"test"}'
+  exit 0
+fi
+echo "unexpected curl args: $*" >&2
+exit 1
+EOF
+
+  cat > "$bin_dir/ollama" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+STATE_DIR="$state_dir"
+case "\${1:-}" in
+  list)
+    cat "\$STATE_DIR/models.txt"
+    ;;
+  create)
+    if [[ "\$2" == "gemma4-chat" ]]; then
+      cp "\$4" "$captured_modelfile"
+    fi
+    exit 0
+    ;;
+  serve|pull)
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+EOF
+
+  chmod +x "$bin_dir/curl" "$bin_dir/ollama"
+
+  if PATH="$bin_dir:/usr/bin:/bin" HOME="$home_dir" OLLAMA_BIN=ollama bash "$REPO_DIR/setup.sh" >"$out" 2>&1 <<<'n'; then
+    assert_file_has_line "$captured_modelfile" 'PARAMETER num_ctx 262144' "setup.sh creates gemma4-chat with a 256k context limit"
+  else
+    fail "setup.sh completes when generating the gemma4-chat Modelfile"
+    sed -n '1,200p' "$out"
+  fi
+}
+
 test_setup_enables_opencode_websearch_env() {
   local dir
   dir="$(new_env setup_opencode_websearch_env)"
@@ -931,6 +987,61 @@ EOF
   fi
 }
 
+test_switch_uses_native_context_for_qwen35_a3b() {
+  local dir
+  dir="$(new_env switch_qwen35_a3b_native_context)"
+  local bin_dir="$dir/bin"
+  local state_dir="$dir/state"
+  local home_dir="$dir/home"
+  local out="$dir/out.txt"
+  local config_file="$home_dir/.config/opencode/opencode.json"
+
+  mkdir -p "$bin_dir" "$state_dir" "$home_dir/.config/opencode"
+  printf 'qwen3:32b\n' > "$state_dir/models.txt"
+  printf '{\n  "model": "ollama/qwen3",\n  "provider": {"ollama": {"models": {}}}\n}\n' > "$config_file"
+
+  cat > "$bin_dir/curl" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${*: -1}" == "http://localhost:11434/api/version" ]]; then
+  echo '{"version":"test"}'
+  exit 0
+fi
+exit 1
+EOF
+
+  cat > "$bin_dir/ollama" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+STATE_DIR="$state_dir"
+case "\${1:-}" in
+  list)
+    cat "\$STATE_DIR/models.txt"
+    ;;
+  pull)
+    echo "\$2" >> "\$STATE_DIR/models.txt"
+    ;;
+  create)
+    exit 0
+    ;;
+  ps)
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+EOF
+
+  chmod +x "$bin_dir/curl" "$bin_dir/ollama"
+
+  if PATH="$bin_dir:/usr/bin:/bin" HOME="$home_dir" OLLAMA_BIN=ollama bash "$REPO_DIR/ollama.sh" switch qwen35-a3b >"$out" 2>&1 <<<'Y'; then
+    assert_file_contains "$config_file" '"contextLength": 262144' "ollama.sh switch uses the native maximum context for qwen35-a3b"
+  else
+    fail "ollama.sh switch writes the native qwen35-a3b context"
+    sed -n '1,160p' "$out"
+  fi
+}
+
 test_start_skips_invalid_model_warmup() {
   local dir
   dir="$(new_env start_invalid_warmup)"
@@ -1147,12 +1258,14 @@ test_setup_writes_single_request_parallel_default
 test_setup_leaves_metal_tensor_workaround_opt_in
 test_setup_omits_legacy_opencode_autoapprove_key
 test_setup_uses_256k_context_for_gemma4_agent
+test_setup_uses_256k_context_for_gemma4_chat
 test_setup_enables_opencode_websearch_env
 test_setup_configures_opencode_network_tools
 test_setup_configures_opencode_multimodal_models
 test_switch_pulls_exact_model
 test_switch_pulls_exact_qwen35_a3b_model
 test_switch_marks_qwen35_a3b_as_multimodal
+test_switch_uses_native_context_for_qwen35_a3b
 test_start_uses_single_request_defaults_without_env_file
 test_start_skips_invalid_model_warmup
 test_start_warms_latest_model_alias

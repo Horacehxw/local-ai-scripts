@@ -43,23 +43,23 @@ resolve_ollama_bin() {
 
 OLLAMA_BIN="$(resolve_ollama_bin)"
 MODEL_CATALOG=$(cat <<'EOF'
-gemma4-moe|gemma4:26b|18GB|65536|Gemma 4 26B MoE · 默认 · 视觉支持
-gemma4-dense|gemma4:31b-instruct-q4_K_M|20GB|65536|Gemma 4 31B Dense · 最高质量
-gemma4-edge|gemma4:e4b|4GB|32768|Gemma 4 E4B · 极快 · 轻量任务
-qwen-coder|qwen2.5-coder:32b|20GB|65536|Qwen2.5-Coder 32B · 最佳编码
-qwen3|qwen3:32b|20GB|131072|Qwen3 32B · 最佳中文 · /think 模式
-qwen35-a3b|qwen3.5:35b-a3b|23GB|131072|Qwen3.5 35B-A3B · MoE · 强工具调用
-qwen3-fast|qwen3-coder-next|6GB|65536|Qwen3-Coder-Next MoE · 极快
-deepseek-r1|deepseek-r1:32b|20GB|65536|DeepSeek R1 32B · 推理/调试
-deepseek-r1-70b|deepseek-r1:70b|45GB|65536|DeepSeek R1 70B · 最强推理
-llama3.3|llama3.3:70b|40GB|65536|Llama 3.3 70B · GPT-4 级
+gemma4-moe|gemma4:26b|18GB|262144|Gemma 4 26B MoE · 默认 · 视觉支持
+gemma4-dense|gemma4:31b|20GB|262144|Gemma 4 31B Dense · 最高质量
+gemma4-edge|gemma4:e4b|4GB|131072|Gemma 4 E4B · 极快 · 轻量任务
+qwen-coder|qwen2.5-coder:32b|20GB|32768|Qwen2.5-Coder 32B · 最佳编码
+qwen3|qwen3:32b|20GB|40960|Qwen3 32B · 最佳中文 · /think 模式
+qwen35-a3b|qwen3.5:35b-a3b|23GB|262144|Qwen3.5 35B-A3B · MoE · 强工具调用
+qwen3-fast|qwen3-coder-next|6GB|262144|Qwen3-Coder-Next MoE · 极快
+deepseek-r1|deepseek-r1:32b|20GB|131072|DeepSeek R1 32B · 推理/调试
+deepseek-r1-70b|deepseek-r1:70b|45GB|131072|DeepSeek R1 70B · 最强推理
+llama3.3|llama3.3:70b|40GB|131072|Llama 3.3 70B · GPT-4 级
 phi4|phi4:14b|9GB|16384|Phi-4 14B · STEM/数学
 EOF
 )
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # 模型目录 — 添加新模型只需在这里加一行
-# 格式: alias|base_model|大小|context_tokens|描述
+# 格式: alias|base_model|大小|native_context_tokens|描述
 # ═══════════════════════════════════════════════════════════════════════════════
 
 # ═══════════════════════════════════════════════════════════════════════════════

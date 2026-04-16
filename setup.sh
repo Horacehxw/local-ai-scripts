@@ -175,10 +175,10 @@ PARAMETER top_k 64
 PARAMETER repeat_penalty 1.0
 EOF
 
-# gemma4-chat：日常聊天（32k context，速度更快）
+# gemma4-chat：日常聊天（使用底模原生最大 context）
 cat > "$MODELFILES_DIR/gemma4-chat" << EOF
 FROM $MODEL_BASE
-PARAMETER num_ctx 32768
+PARAMETER num_ctx 262144
 PARAMETER num_predict 4096
 PARAMETER temperature 1.0
 PARAMETER top_p 0.95
@@ -188,7 +188,7 @@ EOF
 
 "$OLLAMA_BIN" create gemma4-agent -f "$MODELFILES_DIR/gemma4-agent"
 "$OLLAMA_BIN" create gemma4-chat  -f "$MODELFILES_DIR/gemma4-chat"
-log "gemma4-agent (256k ctx) 和 gemma4-chat (32k ctx) 已创建"
+log "gemma4-agent (256k ctx) 和 gemma4-chat (256k ctx) 已创建"
 
 # 停止临时服务
 if [[ "${STARTED_TEMP:-false}" == "true" ]]; then
@@ -233,7 +233,7 @@ cat > "$OPENCODE_CONFIG" << 'EOF'
         },
         "gemma4-chat": {
           "name": "gemma4-chat",
-          "contextLength": 32768,
+          "contextLength": 262144,
           "attachment": true,
           "modalities": {
             "input": ["text", "image"],
