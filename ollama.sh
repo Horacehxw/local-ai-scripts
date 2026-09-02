@@ -48,7 +48,8 @@ gemma4-dense|gemma4:31b|20GB|262144|Gemma 4 31B Dense · 最高质量
 gemma4-edge|gemma4:e4b|4GB|131072|Gemma 4 E4B · 极快 · 轻量任务
 qwen-coder|qwen2.5-coder:32b|20GB|32768|Qwen2.5-Coder 32B · 最佳编码
 qwen3|qwen3:32b|20GB|40960|Qwen3 32B · 最佳中文 · /think 模式
-qwen35-a3b|qwen3.5:35b-a3b|23GB|262144|Qwen3.5 35B-A3B · MoE · 强工具调用
+qwen38-27b|qwen3.8:27b|18GB|262144|Qwen3.8 27B · 旗舰编码 · 多模态 · 默认思考
+qwen36-27b|qwen3.6:27b|17GB|262144|Qwen3.6 27B · 旗舰编码 · 多模态
 qwen3-fast|qwen3-coder-next|6GB|262144|Qwen3-Coder-Next MoE · 极快
 deepseek-r1|deepseek-r1:32b|20GB|131072|DeepSeek R1 32B · 推理/调试
 deepseek-r1-70b|deepseek-r1:70b|45GB|131072|DeepSeek R1 70B · 最强推理
@@ -95,7 +96,7 @@ get_model_spec() {
 model_supports_image_inputs() {
   local alias="$1"
   case "$alias" in
-    gemma4-*|qwen35-a3b)
+    gemma4-*|qwen36-27b|qwen38-27b)
       return 0
       ;;
     *)
@@ -112,7 +113,7 @@ get_current_model() {
   fi
 }
 
-start_server() {
+load_launch_profile() {
   local tensor_disable_pinned=false
   if [[ -f "$HOME/.ollama_env" ]]; then
     source "$HOME/.ollama_env"
@@ -120,19 +121,128 @@ start_server() {
       tensor_disable_pinned=true
     fi
   fi
+
   : "${OLLAMA_FLASH_ATTENTION:=1}"
   : "${OLLAMA_KV_CACHE_TYPE:=f16}"
   : "${OLLAMA_NUM_PARALLEL:=1}"
-  export OLLAMA_FLASH_ATTENTION OLLAMA_KV_CACHE_TYPE OLLAMA_NUM_PARALLEL
+
+  DESIRED_OLLAMA_FLASH_ATTENTION="$OLLAMA_FLASH_ATTENTION"
+  DESIRED_OLLAMA_KV_CACHE_TYPE="$OLLAMA_KV_CACHE_TYPE"
+  DESIRED_OLLAMA_NUM_PARALLEL="$OLLAMA_NUM_PARALLEL"
+
   if [[ "$tensor_disable_pinned" == "true" ]]; then
-    export GGML_METAL_TENSOR_DISABLE
+    DESIRED_GGML_METAL_TENSOR_DISABLE_STATE="set"
+    DESIRED_GGML_METAL_TENSOR_DISABLE_VALUE="${GGML_METAL_TENSOR_DISABLE:-}"
   elif [[ "$OLLAMA_BIN" == "$OLLAMA_PATCHED_BIN" ]]; then
-    unset GGML_METAL_TENSOR_DISABLE
+    DESIRED_GGML_METAL_TENSOR_DISABLE_STATE="unset"
+    DESIRED_GGML_METAL_TENSOR_DISABLE_VALUE=""
   elif [[ -n "${GGML_METAL_TENSOR_DISABLE:-}" ]]; then
-    export GGML_METAL_TENSOR_DISABLE
+    DESIRED_GGML_METAL_TENSOR_DISABLE_STATE="set"
+    DESIRED_GGML_METAL_TENSOR_DISABLE_VALUE="$GGML_METAL_TENSOR_DISABLE"
   else
-    export GGML_METAL_TENSOR_DISABLE=1
+    DESIRED_GGML_METAL_TENSOR_DISABLE_STATE="set"
+    DESIRED_GGML_METAL_TENSOR_DISABLE_VALUE="1"
   fi
+}
+
+apply_launch_profile() {
+  export OLLAMA_FLASH_ATTENTION="$DESIRED_OLLAMA_FLASH_ATTENTION"
+  export OLLAMA_KV_CACHE_TYPE="$DESIRED_OLLAMA_KV_CACHE_TYPE"
+  export OLLAMA_NUM_PARALLEL="$DESIRED_OLLAMA_NUM_PARALLEL"
+
+  if [[ "$DESIRED_GGML_METAL_TENSOR_DISABLE_STATE" == "set" ]]; then
+    export GGML_METAL_TENSOR_DISABLE="$DESIRED_GGML_METAL_TENSOR_DISABLE_VALUE"
+  else
+    unset GGML_METAL_TENSOR_DISABLE
+  fi
+}
+
+running_server_pid() {
+  ps -axo pid=,command= 2>/dev/null | awk 'index($0, "ollama serve") {print $1; exit}'
+}
+
+running_server_command() {
+  local pid="$1"
+  [[ -n "$pid" ]] || return 1
+  ps -p "$pid" -o command= 2>/dev/null | sed 's/^[[:space:]]*//'
+}
+
+running_server_env() {
+  local pid="$1"
+  [[ -n "$pid" ]] || return 1
+  ps eww -p "$pid" -o command= 2>/dev/null | sed 's/^[[:space:]]*//'
+}
+
+running_server_log_file() {
+  local pid="$1"
+  [[ -n "$pid" ]] || return 1
+  lsof -p "$pid" 2>/dev/null | awk '$4 ~ /^[12]w$/ && $NF ~ /\.log$/ {print $NF; exit}'
+}
+
+running_server_matches_launch_profile() {
+  local pid server_command server_env server_bin desired_bin
+
+  pid="$(running_server_pid)" || return 0
+  [[ -n "$pid" ]] || return 0
+
+  server_command="$(running_server_command "$pid")"
+  server_env="$(running_server_env "$pid")"
+  if [[ -z "$server_command" || -z "$server_env" ]]; then
+    return 0
+  fi
+  server_bin="${server_command%% *}"
+  desired_bin="$OLLAMA_BIN"
+
+  if [[ -n "$server_bin" ]] && [[ "$server_bin" != "$desired_bin" ]] && [[ "$(basename "$server_bin")" != "$(basename "$desired_bin")" ]]; then
+    return 1
+  fi
+
+  [[ "$server_env" == *"OLLAMA_FLASH_ATTENTION=$DESIRED_OLLAMA_FLASH_ATTENTION"* ]] || return 1
+  [[ "$server_env" == *"OLLAMA_KV_CACHE_TYPE=$DESIRED_OLLAMA_KV_CACHE_TYPE"* ]] || return 1
+  [[ "$server_env" == *"OLLAMA_NUM_PARALLEL=$DESIRED_OLLAMA_NUM_PARALLEL"* ]] || return 1
+
+  if [[ "$DESIRED_GGML_METAL_TENSOR_DISABLE_STATE" == "set" ]]; then
+    [[ "$server_env" == *"GGML_METAL_TENSOR_DISABLE=$DESIRED_GGML_METAL_TENSOR_DISABLE_VALUE"* ]] || return 1
+  else
+    [[ "$server_env" != *"GGML_METAL_TENSOR_DISABLE="* ]] || return 1
+  fi
+
+  return 0
+}
+
+restart_running_server() {
+  local pid attempt
+
+  pid="$(running_server_pid)" || true
+  if [[ -n "$pid" ]] && kill "$pid" 2>/dev/null; then
+    :
+  else
+    pkill -f "ollama serve" 2>/dev/null || true
+  fi
+
+  rm -f "$OLLAMA_PID_FILE"
+
+  for attempt in $(seq 1 10); do
+    if ! is_running; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  pkill -f "ollama serve" 2>/dev/null || true
+  for attempt in $(seq 1 5); do
+    if ! is_running; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  return 1
+}
+
+start_server() {
+  load_launch_profile
+  apply_launch_profile
   nohup "$OLLAMA_BIN" serve > "$OLLAMA_LOG_FILE" 2>&1 &
   echo $! > "$OLLAMA_PID_FILE"
 }
@@ -149,9 +259,20 @@ wait_for_server() {
 }
 
 diagnose_start_failure() {
-  [[ -f "$OLLAMA_LOG_FILE" ]] || return 1
+  local pid extra_log
 
-  if grep -Fq 'failure during GPU discovery' "$OLLAMA_LOG_FILE" && grep -Fq 'failed to finish discovery before timeout' "$OLLAMA_LOG_FILE"; then
+  pid="$(running_server_pid)" || true
+  extra_log=""
+  if [[ -n "$pid" ]]; then
+    extra_log="$(running_server_log_file "$pid" 2>/dev/null || true)"
+  fi
+
+  if [[ ! -f "$OLLAMA_LOG_FILE" && ( -z "$extra_log" || ! -f "$extra_log" ) ]]; then
+    return 1
+  fi
+
+  if { [[ -f "$OLLAMA_LOG_FILE" ]] && grep -Fq 'failure during GPU discovery' "$OLLAMA_LOG_FILE" && grep -Fq 'failed to finish discovery before timeout' "$OLLAMA_LOG_FILE"; } || \
+     { [[ -n "$extra_log" && -f "$extra_log" ]] && grep -Fq 'failure during GPU discovery' "$extra_log" && grep -Fq 'failed to finish discovery before timeout' "$extra_log"; }; then
     cat <<EOF
 GPU 探测超时，Ollama 回退到了 CPU，随后当前大模型加载失败。
 建议先修复本机 Ollama 运行时，再重试当前模型：
@@ -164,11 +285,36 @@ EOF
     return 0
   fi
 
-  if grep -Fq 'llama runner terminated' "$OLLAMA_LOG_FILE"; then
+  if { [[ -f "$OLLAMA_LOG_FILE" ]] && grep -Fq 'Input types must match cooperative tensor types' "$OLLAMA_LOG_FILE"; } || \
+     { [[ -f "$OLLAMA_LOG_FILE" ]] && grep -Fq 'GGML_ASSERT(backend) failed' "$OLLAMA_LOG_FILE"; } || \
+     { [[ -n "$extra_log" && -f "$extra_log" ]] && grep -Fq 'Input types must match cooperative tensor types' "$extra_log"; } || \
+     { [[ -n "$extra_log" && -f "$extra_log" ]] && grep -Fq 'GGML_ASSERT(backend) failed' "$extra_log"; }; then
+    cat <<EOF
+当前 Ollama 运行时在 Metal tensor 编译阶段崩溃了。
+这不是模型缺失，也不是显存不足，而是当前 runtime 与本机 Metal 组合不兼容。
+建议：
+  ./ollama.sh stop
+  若有修补版 runtime，优先使用：$OLLAMA_PATCHED_BIN
+  若只能使用 stock Ollama，请在 ~/.ollama_env 启用：
+    export GGML_METAL_TENSOR_DISABLE=1
+  然后重新执行：
+    ./ollama.sh start
+EOF
+    return 0
+  fi
+
+  if { [[ -f "$OLLAMA_LOG_FILE" ]] && grep -Fq 'llama runner terminated' "$OLLAMA_LOG_FILE"; } || \
+     { [[ -n "$extra_log" && -f "$extra_log" ]] && grep -Fq 'llama runner terminated' "$extra_log"; }; then
     cat <<EOF
 当前模型加载失败，Ollama runner 已异常退出。
-请检查日志：cat ~/.ollama.log
+请检查日志：
+  cat ~/.ollama.log
 EOF
+    if [[ -n "$extra_log" && -f "$extra_log" && "$extra_log" != "$OLLAMA_LOG_FILE" ]]; then
+      cat <<EOF
+  cat "$extra_log"
+EOF
+    fi
     return 0
   fi
 
@@ -183,9 +329,21 @@ cmd_start() {
 
   # 加载环境变量
   [[ -f "$HOME/.ollama_env" ]] && source "$HOME/.ollama_env"
+  load_launch_profile
 
   if is_running; then
-    log "Ollama 已在运行"
+    if running_server_matches_launch_profile; then
+      log "Ollama 已在运行"
+    else
+      warn "检测到现有 Ollama 服务未使用当前脚本的兼容运行时，正在重启..."
+      restart_running_server || err "无法重启现有 Ollama 服务"
+      info "启动 Ollama 服务（后台）..."
+      start_server
+
+      info "等待服务就绪..."
+      wait_for_server || err "服务启动超时，查看日志: cat ~/.ollama.log"
+      log "Ollama 服务已启动 (PID: $(cat "$OLLAMA_PID_FILE"))"
+    fi
   else
     info "启动 Ollama 服务（后台）..."
     start_server
@@ -465,7 +623,11 @@ PYEOF
   # 模型特定提示
   echo ""
   case "$CHOSEN" in
-    qwen3*)
+    qwen36-27b)
+      echo -e "${CYAN}提示: Qwen3.6 默认支持 thinking 和图像输入；在 Ollama CLI 中可用 --think=false 关闭思考输出${NC}" ;;
+    qwen38-27b)
+      echo -e "${CYAN}提示: Qwen3.8 默认开启思考；Ollama CLI 可用 --think=false 关闭，reasoning_effort 可设 low/medium/xhigh${NC}" ;;
+    qwen3)
       echo -e "${CYAN}提示: Qwen3 输入 /think 开启深度推理模式${NC}" ;;
     deepseek*)
       echo -e "${CYAN}提示: DeepSeek R1 会先输出 <think>...</think> 思维链，属正常现象，响应较慢${NC}" ;;

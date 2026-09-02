@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # setup.sh — 一次性安装脚本
-# 安装 Ollama + Gemma 4 26B MoE + OpenCode，不设置开机自启
+# 安装 Ollama + Qwen3.8 27B + OpenCode，不设置开机自启
 # 用法: chmod +x setup.sh && ./setup.sh
 # =============================================================================
 
@@ -17,7 +17,7 @@ err()  { echo -e "${RED}[✗]${NC} $*"; exit 1; }
 step() { echo -e "\n${BOLD}${CYAN}━━━ $* ━━━${NC}"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-MODEL_BASE="gemma4:26b"
+MODEL_BASE="qwen3.8:27b"
 MODELFILES_DIR="$HOME/.ollama_modelfiles"
 OPENCODE_CONFIG="$HOME/.config/opencode/opencode.json"
 OLLAMA_PATCHED_BIN="${OLLAMA_PATCHED_BIN:-/tmp/ollama-tensor-fix/dist/darwin-arm64/ollama}"
@@ -59,7 +59,7 @@ trap cleanup_temp_ollama EXIT INT TERM
 echo -e "${BOLD}"
 cat << 'BANNER'
   ╔══════════════════════════════════════════════════╗
-  ║   Setup: Ollama + Gemma 4 26B MoE + OpenCode    ║
+  ║   Setup: Ollama + Qwen3.8 27B + OpenCode       ║
   ║   一次性安装，不设开机自启                        ║
   ╚══════════════════════════════════════════════════╝
 BANNER
@@ -132,7 +132,7 @@ done
 source "$OLLAMA_ENV"
 
 # ── Step 4: 下载模型 ──────────────────────────────────────────────────────────
-step "4/6 下载 Gemma 4 26B MoE (~18GB)"
+step "4/6 下载 Qwen3.8 27B (~18GB)"
 
 # 启动临时服务用于下载
 if ! curl -s http://localhost:11434/api/version &>/dev/null; then
@@ -146,7 +146,7 @@ else
 fi
 
 if model_installed_exact "$MODEL_BASE"; then
-  log "Gemma 4 模型已存在，跳过下载"
+  log "Qwen3.8 27B 已存在，跳过下载"
 else
   warn "即将下载 ~18GB，请确保网络和磁盘空间充足"
   read -r -p "$(echo -e ${YELLOW}[?]${NC}) 开始下载？[Y/n] " confirm
@@ -159,13 +159,13 @@ else
   fi
 fi
 
-# ── Step 5: 创建 Modelfile（Gemma 4 26B 使用 256k context）───────────────────
+# ── Step 5: 创建 Modelfile（Qwen3.8 27B 使用 256k context）──────────────────
 step "5/6 创建优化 Modelfile"
 
 mkdir -p "$MODELFILES_DIR"
 
-# gemma4-agent：给 OpenCode 用（256k context，上限拉满）
-cat > "$MODELFILES_DIR/gemma4-agent" << EOF
+# qwen38-27b：给 OpenCode 用（256k context，上限拉满）
+cat > "$MODELFILES_DIR/qwen38-27b" << EOF
 FROM $MODEL_BASE
 PARAMETER num_ctx 262144
 PARAMETER num_predict 8192
@@ -175,20 +175,8 @@ PARAMETER top_k 64
 PARAMETER repeat_penalty 1.0
 EOF
 
-# gemma4-chat：日常聊天（使用底模原生最大 context）
-cat > "$MODELFILES_DIR/gemma4-chat" << EOF
-FROM $MODEL_BASE
-PARAMETER num_ctx 262144
-PARAMETER num_predict 4096
-PARAMETER temperature 1.0
-PARAMETER top_p 0.95
-PARAMETER top_k 64
-PARAMETER repeat_penalty 1.0
-EOF
-
-"$OLLAMA_BIN" create gemma4-agent -f "$MODELFILES_DIR/gemma4-agent"
-"$OLLAMA_BIN" create gemma4-chat  -f "$MODELFILES_DIR/gemma4-chat"
-log "gemma4-agent (256k ctx) 和 gemma4-chat (256k ctx) 已创建"
+"$OLLAMA_BIN" create qwen38-27b -f "$MODELFILES_DIR/qwen38-27b"
+log "qwen38-27b (256k ctx) 已创建"
 
 # 停止临时服务
 if [[ "${STARTED_TEMP:-false}" == "true" ]]; then
@@ -213,7 +201,7 @@ mkdir -p "$(dirname "$OPENCODE_CONFIG")"
 cat > "$OPENCODE_CONFIG" << 'EOF'
 {
   "$schema": "https://opencode.ai/config.json",
-  "model": "ollama/gemma4-agent",
+  "model": "ollama/qwen38-27b",
   "provider": {
     "ollama": {
       "npm": "@ai-sdk/openai-compatible",
@@ -222,17 +210,8 @@ cat > "$OPENCODE_CONFIG" << 'EOF'
         "baseURL": "http://localhost:11434/v1"
       },
       "models": {
-        "gemma4-agent": {
-          "name": "gemma4-agent",
-          "contextLength": 262144,
-          "attachment": true,
-          "modalities": {
-            "input": ["text", "image"],
-            "output": ["text"]
-          }
-        },
-        "gemma4-chat": {
-          "name": "gemma4-chat",
+        "qwen38-27b": {
+          "name": "qwen38-27b",
           "contextLength": 262144,
           "attachment": true,
           "modalities": {
@@ -263,7 +242,7 @@ cat > "$OPENCODE_CONFIG" << 'EOF'
 }
 EOF
 
-log "OpenCode 配置完成，默认模型: gemma4-agent"
+log "OpenCode 配置完成，默认模型: qwen38-27b"
 
 # ── 完成 ──────────────────────────────────────────────────────────────────────
 echo ""

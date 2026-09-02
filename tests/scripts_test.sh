@@ -266,9 +266,9 @@ EOF
   chmod +x "$bin_dir/curl" "$bin_dir/ollama"
 
   if PATH="$bin_dir:/usr/bin:/bin" HOME="$home_dir" OLLAMA_BIN=ollama bash "$REPO_DIR/setup.sh" >"$out" 2>&1 <<<'Y'; then
-    assert_file_has_line "$state_dir/models.txt" "gemma4:26b" "setup.sh pulls the exact Gemma base model"
+    assert_file_has_line "$state_dir/models.txt" "qwen3.8:27b" "setup.sh pulls the exact Qwen3.8 27B base model"
   else
-    fail "setup.sh completes when only another Gemma variant is preinstalled"
+    fail "setup.sh completes when only another model variant is preinstalled"
     sed -n '1,160p' "$out"
   fi
 }
@@ -284,7 +284,7 @@ test_setup_writes_kv_cache_type() {
   local out="$dir/out.txt"
   local env_file="$home_dir/.ollama_env"
 
-  printf 'gemma4:26b\n' > "$state_dir/models.txt"
+  printf 'qwen3.8:27b\n' > "$state_dir/models.txt"
 
   cat > "$bin_dir/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -334,7 +334,7 @@ test_setup_writes_single_request_parallel_default() {
   local out="$dir/out.txt"
   local env_file="$home_dir/.ollama_env"
 
-  printf 'gemma4:26b\n' > "$state_dir/models.txt"
+  printf 'qwen3.8:27b\n' > "$state_dir/models.txt"
 
   cat > "$bin_dir/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -384,7 +384,7 @@ test_setup_leaves_metal_tensor_workaround_opt_in() {
   local out="$dir/out.txt"
   local env_file="$home_dir/.ollama_env"
 
-  printf 'gemma4:26b\n' > "$state_dir/models.txt"
+  printf 'qwen3.8:27b\n' > "$state_dir/models.txt"
 
   cat > "$bin_dir/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -434,7 +434,7 @@ test_setup_omits_legacy_opencode_autoapprove_key() {
   local out="$dir/out.txt"
   local config_file="$home_dir/.config/opencode/opencode.json"
 
-  printf 'gemma4:26b\n' > "$state_dir/models.txt"
+  printf 'qwen3.8:27b\n' > "$state_dir/models.txt"
 
   cat > "$bin_dir/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -473,18 +473,18 @@ EOF
   fi
 }
 
-test_setup_uses_256k_context_for_gemma4_agent() {
+test_setup_uses_256k_context_for_qwen38_27b() {
   local dir
-  dir="$(new_env setup_gemma4_agent_256k)"
+  dir="$(new_env setup_qwen38_27b_256k)"
   write_common_stubs "$dir"
 
   local bin_dir="$dir/bin"
   local state_dir="$dir/state"
   local home_dir="$dir/home"
   local out="$dir/out.txt"
-  local captured_modelfile="$state_dir/gemma4-agent.modelfile"
+  local captured_modelfile="$state_dir/qwen38-27b.modelfile"
 
-  printf 'gemma4:26b\n' > "$state_dir/models.txt"
+  printf 'qwen3.8:27b\n' > "$state_dir/models.txt"
 
   cat > "$bin_dir/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -505,7 +505,7 @@ case "\${1:-}" in
     cat "\$STATE_DIR/models.txt"
     ;;
   create)
-    if [[ "\$2" == "gemma4-agent" ]]; then
+    if [[ "\$2" == "qwen38-27b" ]]; then
       cp "\$4" "$captured_modelfile"
     fi
     exit 0
@@ -522,65 +522,10 @@ EOF
   chmod +x "$bin_dir/curl" "$bin_dir/ollama"
 
   if PATH="$bin_dir:/usr/bin:/bin" HOME="$home_dir" OLLAMA_BIN=ollama bash "$REPO_DIR/setup.sh" >"$out" 2>&1 <<<'n'; then
-    assert_file_has_line "$captured_modelfile" 'PARAMETER num_ctx 262144' "setup.sh creates gemma4-agent with a 256k context limit"
+    assert_file_has_line "$captured_modelfile" 'FROM qwen3.8:27b' "setup.sh bases the default alias on Qwen3.8 27B"
+    assert_file_has_line "$captured_modelfile" 'PARAMETER num_ctx 262144' "setup.sh creates qwen38-27b with a 256k context limit"
   else
-    fail "setup.sh completes when generating the gemma4-agent Modelfile"
-    sed -n '1,200p' "$out"
-  fi
-}
-
-test_setup_uses_256k_context_for_gemma4_chat() {
-  local dir
-  dir="$(new_env setup_gemma4_chat_256k)"
-  write_common_stubs "$dir"
-
-  local bin_dir="$dir/bin"
-  local state_dir="$dir/state"
-  local home_dir="$dir/home"
-  local out="$dir/out.txt"
-  local captured_modelfile="$state_dir/gemma4-chat.modelfile"
-
-  printf 'gemma4:26b\n' > "$state_dir/models.txt"
-
-  cat > "$bin_dir/curl" <<'EOF'
-#!/usr/bin/env bash
-if [[ "${*: -1}" == "http://localhost:11434/api/version" ]]; then
-  echo '{"version":"test"}'
-  exit 0
-fi
-echo "unexpected curl args: $*" >&2
-exit 1
-EOF
-
-  cat > "$bin_dir/ollama" <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
-STATE_DIR="$state_dir"
-case "\${1:-}" in
-  list)
-    cat "\$STATE_DIR/models.txt"
-    ;;
-  create)
-    if [[ "\$2" == "gemma4-chat" ]]; then
-      cp "\$4" "$captured_modelfile"
-    fi
-    exit 0
-    ;;
-  serve|pull)
-    exit 0
-    ;;
-  *)
-    exit 0
-    ;;
-esac
-EOF
-
-  chmod +x "$bin_dir/curl" "$bin_dir/ollama"
-
-  if PATH="$bin_dir:/usr/bin:/bin" HOME="$home_dir" OLLAMA_BIN=ollama bash "$REPO_DIR/setup.sh" >"$out" 2>&1 <<<'n'; then
-    assert_file_has_line "$captured_modelfile" 'PARAMETER num_ctx 262144' "setup.sh creates gemma4-chat with a 256k context limit"
-  else
-    fail "setup.sh completes when generating the gemma4-chat Modelfile"
+    fail "setup.sh completes when generating the qwen38-27b Modelfile"
     sed -n '1,200p' "$out"
   fi
 }
@@ -596,7 +541,7 @@ test_setup_enables_opencode_websearch_env() {
   local out="$dir/out.txt"
   local env_file="$home_dir/.ollama_env"
 
-  printf 'gemma4:26b\n' > "$state_dir/models.txt"
+  printf 'qwen3.8:27b\n' > "$state_dir/models.txt"
 
   cat > "$bin_dir/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -646,7 +591,7 @@ test_setup_configures_opencode_network_tools() {
   local out="$dir/out.txt"
   local config_file="$home_dir/.config/opencode/opencode.json"
 
-  printf 'gemma4:26b\n' > "$state_dir/models.txt"
+  printf 'qwen3.8:27b\n' > "$state_dir/models.txt"
 
   cat > "$bin_dir/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -699,7 +644,7 @@ test_setup_configures_opencode_multimodal_models() {
   local out="$dir/out.txt"
   local config_file="$home_dir/.config/opencode/opencode.json"
 
-  printf 'gemma4:26b\n' > "$state_dir/models.txt"
+  printf 'qwen3.8:27b\n' > "$state_dir/models.txt"
 
   cat > "$bin_dir/curl" <<'EOF'
 #!/usr/bin/env bash
@@ -731,9 +676,9 @@ EOF
   chmod +x "$bin_dir/curl" "$bin_dir/ollama"
 
   if PATH="$bin_dir:/usr/bin:/bin" HOME="$home_dir" OLLAMA_BIN=ollama bash "$REPO_DIR/setup.sh" >"$out" 2>&1 <<<'n'; then
-    assert_file_contains "$config_file" '"attachment": true' "setup.sh marks gemma4 models as attachment-capable"
-    assert_file_contains "$config_file" '"input": ["text", "image"]' "setup.sh configures image input modalities for gemma4 models"
-    assert_file_contains "$config_file" '"output": ["text"]' "setup.sh configures text output modalities for gemma4 models"
+    assert_file_contains "$config_file" '"attachment": true' "setup.sh marks qwen38-27b as attachment-capable"
+    assert_file_contains "$config_file" '"input": ["text", "image"]' "setup.sh configures image input modalities for qwen38-27b"
+    assert_file_contains "$config_file" '"output": ["text"]' "setup.sh configures text output modalities for qwen38-27b"
   else
     fail "setup.sh completes when writing multimodal OpenCode model config"
     sed -n '1,200p' "$out"
@@ -804,6 +749,98 @@ EOF
   fi
 }
 
+test_start_restarts_incompatible_running_server() {
+  local dir
+  dir="$(new_env start_restart_incompatible_server)"
+  local bin_dir="$dir/bin"
+  local state_dir="$dir/state"
+  local home_dir="$dir/home"
+  local out="$dir/out.txt"
+
+  mkdir -p "$bin_dir" "$state_dir" "$home_dir/.config/opencode"
+  printf '{"model":"ollama/gemma4-agent"}\n' > "$home_dir/.config/opencode/opencode.json"
+  touch "$state_dir/server_ready"
+
+  cat > "$bin_dir/curl" <<EOF
+#!/usr/bin/env bash
+if [[ "\${*: -1}" == "http://localhost:11434/api/version" && -f "$state_dir/server_ready" ]]; then
+  echo '{"version":"test"}'
+  exit 0
+fi
+exit 1
+EOF
+
+  cat > "$bin_dir/ollama" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+STATE_DIR="$state_dir"
+case "\${1:-}" in
+  serve)
+    touch "\$STATE_DIR/server_ready"
+    {
+      printf 'OLLAMA_FLASH_ATTENTION=%s\n' "\${OLLAMA_FLASH_ATTENTION:-}"
+      printf 'OLLAMA_KV_CACHE_TYPE=%s\n' "\${OLLAMA_KV_CACHE_TYPE:-}"
+      printf 'OLLAMA_NUM_PARALLEL=%s\n' "\${OLLAMA_NUM_PARALLEL:-}"
+      printf 'GGML_METAL_TENSOR_DISABLE=%s\n' "\${GGML_METAL_TENSOR_DISABLE:-}"
+    } > "\$STATE_DIR/serve_env.txt"
+    exit 0
+    ;;
+  list)
+    cat <<'LIST'
+NAME                   ID              SIZE     MODIFIED
+gemma4-agent:latest    123             17 GB    just now
+LIST
+    ;;
+  run)
+    printf '%s\n' "\$*" >> "\$STATE_DIR/run_calls.txt"
+    exit 0
+    ;;
+  ps)
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+EOF
+
+  cat > "$bin_dir/ps" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  "-axo pid=,command=")
+    echo "123 /opt/homebrew/bin/ollama serve"
+    ;;
+  "-p 123 -o command=")
+    echo "/opt/homebrew/bin/ollama serve"
+    ;;
+  "eww -p 123 -o command=")
+    echo "/opt/homebrew/bin/ollama serve OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=f16 OLLAMA_NUM_PARALLEL=1"
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+EOF
+
+  cat > "$bin_dir/pkill" <<EOF
+#!/usr/bin/env bash
+rm -f "$state_dir/server_ready"
+printf '%s\n' "\$*" >> "$state_dir/pkill_calls.txt"
+exit 0
+EOF
+
+  chmod +x "$bin_dir/curl" "$bin_dir/ollama" "$bin_dir/ps" "$bin_dir/pkill"
+
+  if PATH="$bin_dir:/usr/bin:/bin" HOME="$home_dir" OLLAMA_PATCHED_BIN="$home_dir/missing-patched-ollama" bash "$REPO_DIR/ollama.sh" start >"$out" 2>&1; then
+    assert_file_contains "$state_dir/pkill_calls.txt" "-f ollama serve" "ollama.sh start restarts a running server that is missing the compatibility profile"
+    assert_file_has_line "$state_dir/serve_env.txt" 'GGML_METAL_TENSOR_DISABLE=1' "ollama.sh start reapplies the stock-runtime Metal compatibility workaround after restart"
+    assert_file_contains "$state_dir/run_calls.txt" "run gemma4-agent  --nowordwrap" "ollama.sh start still warms the configured model after restarting the server"
+  else
+    fail "ollama.sh start restarts an incompatible running server"
+    sed -n '1,160p' "$out"
+  fi
+}
+
 test_switch_pulls_exact_model() {
   local dir
   dir="$(new_env switch_exact_pull)"
@@ -864,9 +901,9 @@ EOF
   fi
 }
 
-test_switch_pulls_exact_qwen35_a3b_model() {
+test_switch_pulls_exact_qwen38_27b_model() {
   local dir
-  dir="$(new_env switch_qwen35_a3b_exact_pull)"
+  dir="$(new_env switch_qwen38_27b_exact_pull)"
   local bin_dir="$dir/bin"
   local state_dir="$dir/state"
   local home_dir="$dir/home"
@@ -916,17 +953,17 @@ EOF
 
   chmod +x "$bin_dir/curl" "$bin_dir/ollama"
 
-  if PATH="$bin_dir:/usr/bin:/bin" HOME="$home_dir" OLLAMA_BIN=ollama bash "$REPO_DIR/ollama.sh" switch qwen35-a3b >"$out" 2>&1 <<<'Y'; then
-    assert_file_contains "$state_dir/models.txt" "qwen3.5:35b-a3b" "ollama.sh switch pulls the exact Qwen3.5 35B-A3B base model tag"
+  if PATH="$bin_dir:/usr/bin:/bin" HOME="$home_dir" OLLAMA_BIN=ollama bash "$REPO_DIR/ollama.sh" switch qwen38-27b >"$out" 2>&1 <<<'Y'; then
+    assert_file_contains "$state_dir/models.txt" "qwen3.8:27b" "ollama.sh switch pulls the exact Qwen3.8 27B base model tag"
   else
     fail "ollama.sh switch succeeds when only another Qwen variant is present"
     sed -n '1,160p' "$out"
   fi
 }
 
-test_switch_marks_qwen35_a3b_as_multimodal() {
+test_switch_marks_qwen38_27b_as_multimodal() {
   local dir
-  dir="$(new_env switch_qwen35_a3b_multimodal)"
+  dir="$(new_env switch_qwen38_27b_multimodal)"
   local bin_dir="$dir/bin"
   local state_dir="$dir/state"
   local home_dir="$dir/home"
@@ -977,19 +1014,19 @@ EOF
 
   chmod +x "$bin_dir/curl" "$bin_dir/ollama"
 
-  if PATH="$bin_dir:/usr/bin:/bin" HOME="$home_dir" OLLAMA_BIN=ollama bash "$REPO_DIR/ollama.sh" switch qwen35-a3b >"$out" 2>&1 <<<'Y'; then
-    assert_file_contains "$config_file" '"attachment": true' "ollama.sh switch marks qwen35-a3b as attachment-capable"
-    assert_file_contains "$config_file" '"modalities": {' "ollama.sh switch writes multimodal metadata for qwen35-a3b"
-    assert_file_contains "$config_file" '"image"' "ollama.sh switch configures image input modalities for qwen35-a3b"
+  if PATH="$bin_dir:/usr/bin:/bin" HOME="$home_dir" OLLAMA_BIN=ollama bash "$REPO_DIR/ollama.sh" switch qwen38-27b >"$out" 2>&1 <<<'Y'; then
+    assert_file_contains "$config_file" '"attachment": true' "ollama.sh switch marks qwen38-27b as attachment-capable"
+    assert_file_contains "$config_file" '"modalities": {' "ollama.sh switch writes multimodal metadata for qwen38-27b"
+    assert_file_contains "$config_file" '"image"' "ollama.sh switch configures image input modalities for qwen38-27b"
   else
-    fail "ollama.sh switch writes multimodal config for qwen35-a3b"
+    fail "ollama.sh switch writes multimodal config for qwen38-27b"
     sed -n '1,160p' "$out"
   fi
 }
 
-test_switch_uses_native_context_for_qwen35_a3b() {
+test_switch_uses_native_context_for_qwen38_27b() {
   local dir
-  dir="$(new_env switch_qwen35_a3b_native_context)"
+  dir="$(new_env switch_qwen38_27b_native_context)"
   local bin_dir="$dir/bin"
   local state_dir="$dir/state"
   local home_dir="$dir/home"
@@ -1034,10 +1071,188 @@ EOF
 
   chmod +x "$bin_dir/curl" "$bin_dir/ollama"
 
-  if PATH="$bin_dir:/usr/bin:/bin" HOME="$home_dir" OLLAMA_BIN=ollama bash "$REPO_DIR/ollama.sh" switch qwen35-a3b >"$out" 2>&1 <<<'Y'; then
-    assert_file_contains "$config_file" '"contextLength": 262144' "ollama.sh switch uses the native maximum context for qwen35-a3b"
+  if PATH="$bin_dir:/usr/bin:/bin" HOME="$home_dir" OLLAMA_BIN=ollama bash "$REPO_DIR/ollama.sh" switch qwen38-27b >"$out" 2>&1 <<<'Y'; then
+    assert_file_contains "$config_file" '"contextLength": 262144' "ollama.sh switch uses the native maximum context for qwen38-27b"
   else
-    fail "ollama.sh switch writes the native qwen35-a3b context"
+    fail "ollama.sh switch writes the native qwen38-27b context"
+    sed -n '1,160p' "$out"
+  fi
+}
+
+test_switch_pulls_exact_qwen36_27b_model() {
+  local dir
+  dir="$(new_env switch_qwen36_27b_exact_pull)"
+  local bin_dir="$dir/bin"
+  local state_dir="$dir/state"
+  local home_dir="$dir/home"
+  local out="$dir/out.txt"
+
+  mkdir -p "$bin_dir" "$state_dir" "$home_dir/.config/opencode"
+  printf 'qwen3.6:35b\n' > "$state_dir/models.txt"
+  printf '{"model":"ollama/qwen3"}\n' > "$home_dir/.config/opencode/opencode.json"
+
+  cat > "$bin_dir/curl" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${*: -1}" == "http://localhost:11434/api/version" ]]; then
+  echo '{"version":"test"}'
+  exit 0
+fi
+exit 1
+EOF
+
+  cat > "$bin_dir/ollama" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+STATE_DIR="$state_dir"
+case "\${1:-}" in
+  list)
+    cat "\$STATE_DIR/models.txt"
+    ;;
+  pull)
+    echo "\$2" >> "\$STATE_DIR/models.txt"
+    ;;
+  create)
+    file="\$4"
+    base=\$(awk '/^FROM / {print \$2}' "\$file")
+    if grep -Fxq "\$base" "\$STATE_DIR/models.txt"; then
+      exit 0
+    fi
+    echo "missing base model: \$base" >&2
+    exit 1
+    ;;
+  ps)
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+EOF
+
+  chmod +x "$bin_dir/curl" "$bin_dir/ollama"
+
+  if PATH="$bin_dir:/usr/bin:/bin" HOME="$home_dir" OLLAMA_BIN=ollama bash "$REPO_DIR/ollama.sh" switch qwen36-27b >"$out" 2>&1 <<<'Y'; then
+    assert_file_contains "$state_dir/models.txt" "qwen3.6:27b" "ollama.sh switch pulls the exact Qwen3.6 27B base model tag"
+  else
+    fail "ollama.sh switch succeeds when only another Qwen3.6 variant is present"
+    sed -n '1,160p' "$out"
+  fi
+}
+
+test_switch_marks_qwen36_27b_as_multimodal() {
+  local dir
+  dir="$(new_env switch_qwen36_27b_multimodal)"
+  local bin_dir="$dir/bin"
+  local state_dir="$dir/state"
+  local home_dir="$dir/home"
+  local out="$dir/out.txt"
+  local config_file="$home_dir/.config/opencode/opencode.json"
+
+  mkdir -p "$bin_dir" "$state_dir" "$home_dir/.config/opencode"
+  printf 'qwen3.6:35b\n' > "$state_dir/models.txt"
+  printf '{\n  "model": "ollama/qwen3",\n  "provider": {"ollama": {"models": {}}}\n}\n' > "$config_file"
+
+  cat > "$bin_dir/curl" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${*: -1}" == "http://localhost:11434/api/version" ]]; then
+  echo '{"version":"test"}'
+  exit 0
+fi
+exit 1
+EOF
+
+  cat > "$bin_dir/ollama" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+STATE_DIR="$state_dir"
+case "\${1:-}" in
+  list)
+    cat "\$STATE_DIR/models.txt"
+    ;;
+  pull)
+    echo "\$2" >> "\$STATE_DIR/models.txt"
+    ;;
+  create)
+    file="\$4"
+    base=\$(awk '/^FROM / {print \$2}' "\$file")
+    if grep -Fxq "\$base" "\$STATE_DIR/models.txt"; then
+      exit 0
+    fi
+    echo "missing base model: \$base" >&2
+    exit 1
+    ;;
+  ps)
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+EOF
+
+  chmod +x "$bin_dir/curl" "$bin_dir/ollama"
+
+  if PATH="$bin_dir:/usr/bin:/bin" HOME="$home_dir" OLLAMA_BIN=ollama bash "$REPO_DIR/ollama.sh" switch qwen36-27b >"$out" 2>&1 <<<'Y'; then
+    assert_file_contains "$config_file" '"attachment": true' "ollama.sh switch marks qwen36-27b as attachment-capable"
+    assert_file_contains "$config_file" '"modalities": {' "ollama.sh switch writes multimodal metadata for qwen36-27b"
+    assert_file_contains "$config_file" '"image"' "ollama.sh switch configures image input modalities for qwen36-27b"
+  else
+    fail "ollama.sh switch writes multimodal config for qwen36-27b"
+    sed -n '1,160p' "$out"
+  fi
+}
+
+test_switch_uses_native_context_for_qwen36_27b() {
+  local dir
+  dir="$(new_env switch_qwen36_27b_native_context)"
+  local bin_dir="$dir/bin"
+  local state_dir="$dir/state"
+  local home_dir="$dir/home"
+  local out="$dir/out.txt"
+  local config_file="$home_dir/.config/opencode/opencode.json"
+
+  mkdir -p "$bin_dir" "$state_dir" "$home_dir/.config/opencode"
+  printf 'qwen3.6:35b\n' > "$state_dir/models.txt"
+  printf '{\n  "model": "ollama/qwen3",\n  "provider": {"ollama": {"models": {}}}\n}\n' > "$config_file"
+
+  cat > "$bin_dir/curl" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${*: -1}" == "http://localhost:11434/api/version" ]]; then
+  echo '{"version":"test"}'
+  exit 0
+fi
+exit 1
+EOF
+
+  cat > "$bin_dir/ollama" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+STATE_DIR="$state_dir"
+case "\${1:-}" in
+  list)
+    cat "\$STATE_DIR/models.txt"
+    ;;
+  pull)
+    echo "\$2" >> "\$STATE_DIR/models.txt"
+    ;;
+  create)
+    exit 0
+    ;;
+  ps)
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+EOF
+
+  chmod +x "$bin_dir/curl" "$bin_dir/ollama"
+
+  if PATH="$bin_dir:/usr/bin:/bin" HOME="$home_dir" OLLAMA_BIN=ollama bash "$REPO_DIR/ollama.sh" switch qwen36-27b >"$out" 2>&1 <<<'Y'; then
+    assert_file_contains "$config_file" '"contextLength": 262144' "ollama.sh switch uses the native maximum context for qwen36-27b"
+  else
+    fail "ollama.sh switch writes the native qwen36-27b context"
     sed -n '1,160p' "$out"
   fi
 }
@@ -1201,6 +1416,63 @@ EOF
   fi
 }
 
+test_start_reports_metal_tensor_runtime_crash() {
+  local dir
+  dir="$(new_env start_metal_tensor_crash)"
+  local bin_dir="$dir/bin"
+  local home_dir="$dir/home"
+  local out="$dir/out.txt"
+
+  mkdir -p "$bin_dir" "$home_dir/.config/opencode"
+  printf '{"model":"ollama/gemma4-agent"}\n' > "$home_dir/.config/opencode/opencode.json"
+  cat > "$home_dir/.ollama.log" <<'EOF'
+ggml_metal_library_init: error: Error Domain=MTLLibraryErrorDomain Code=3
+/System/Library/Frameworks/MetalPerformancePrimitives.framework/Headers/__impl/MPPTensorOpsMatMul2dImpl.h:3266:5: error: static_assert failed due to requirement '__tensor_ops_detail::__is_same_v<bfloat, half>' "Input types must match cooperative tensor types"
+ggml-backend.cpp:258: GGML_ASSERT(backend) failed
+EOF
+
+  cat > "$bin_dir/curl" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${*: -1}" == "http://localhost:11434/api/version" ]]; then
+  echo '{"version":"test"}'
+  exit 0
+fi
+exit 1
+EOF
+
+  cat > "$bin_dir/ollama" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  list)
+    cat <<'LIST'
+NAME                   ID              SIZE     MODIFIED
+gemma4-agent:latest    123             17 GB    just now
+LIST
+    ;;
+  run)
+    exit 1
+    ;;
+  ps)
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+EOF
+
+  chmod +x "$bin_dir/curl" "$bin_dir/ollama"
+
+  if PATH="$bin_dir:/usr/bin:/bin" HOME="$home_dir" OLLAMA_BIN=ollama bash "$REPO_DIR/ollama.sh" start >"$out" 2>&1; then
+    fail "ollama.sh start stops when the runtime crashes during Metal tensor compilation"
+    sed -n '1,160p' "$out"
+  else
+    assert_file_contains "$out" "Metal tensor 编译阶段崩溃" "ollama.sh start reports the Metal tensor runtime crash explicitly"
+    assert_file_contains "$out" "GGML_METAL_TENSOR_DISABLE=1" "ollama.sh start suggests enabling the stock-runtime Metal compatibility workaround"
+  fi
+}
+
 test_stop_avoids_generic_force_kill() {
   local dir
   dir="$(new_env stop_force_kill)"
@@ -1257,19 +1529,23 @@ test_setup_writes_kv_cache_type
 test_setup_writes_single_request_parallel_default
 test_setup_leaves_metal_tensor_workaround_opt_in
 test_setup_omits_legacy_opencode_autoapprove_key
-test_setup_uses_256k_context_for_gemma4_agent
-test_setup_uses_256k_context_for_gemma4_chat
+test_setup_uses_256k_context_for_qwen38_27b
 test_setup_enables_opencode_websearch_env
 test_setup_configures_opencode_network_tools
 test_setup_configures_opencode_multimodal_models
 test_switch_pulls_exact_model
-test_switch_pulls_exact_qwen35_a3b_model
-test_switch_marks_qwen35_a3b_as_multimodal
-test_switch_uses_native_context_for_qwen35_a3b
+test_switch_pulls_exact_qwen38_27b_model
+test_switch_marks_qwen38_27b_as_multimodal
+test_switch_uses_native_context_for_qwen38_27b
+test_switch_pulls_exact_qwen36_27b_model
+test_switch_marks_qwen36_27b_as_multimodal
+test_switch_uses_native_context_for_qwen36_27b
 test_start_uses_single_request_defaults_without_env_file
+test_start_restarts_incompatible_running_server
 test_start_skips_invalid_model_warmup
 test_start_warms_latest_model_alias
 test_start_fails_on_gpu_discovery_timeout
+test_start_reports_metal_tensor_runtime_crash
 test_stop_avoids_generic_force_kill
 
 if [[ "$failures" -gt 0 ]]; then

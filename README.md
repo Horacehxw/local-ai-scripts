@@ -2,7 +2,7 @@
 
 This repository contains two Bash scripts for running a local Ollama-based setup on macOS:
 
-- `setup.sh`: one-time bootstrap for Ollama, a default Gemma model, and OpenCode.
+- `setup.sh`: one-time bootstrap for Ollama, a default Qwen3.8 model, and OpenCode.
 - `ollama.sh`: daily control script for starting, stopping, checking status, and switching models.
 
 The scripts are designed for a local workflow where Ollama is not configured as a login service. You start it when you need it, and stop it when you want to free memory.
@@ -23,10 +23,8 @@ It does the following:
 4. Installs or upgrades `ollama`.
 5. Ensures Ollama is not set to auto-start with `brew services`.
 6. Writes Ollama performance environment variables to `~/.ollama_env`.
-7. Optionally downloads the default base model: `gemma4:26b`.
-8. Creates two local Ollama model aliases:
-   - `gemma4-agent`: 256k context, intended for OpenCode
-   - `gemma4-chat`: 256k context, intended for general chat
+7. Optionally downloads the default base model: `qwen3.8:27b`.
+8. Creates the local Ollama model alias `qwen38-27b` (256k context, intended for OpenCode).
 9. Installs or updates `opencode-ai`.
 10. Writes OpenCode config to `~/.config/opencode/opencode.json`.
 
@@ -78,7 +76,7 @@ OpenCode is also configured for network-backed discovery by default:
 - `context7` MCP for docs search
 - `gh_grep` MCP for public GitHub code search
 
-For multimodal models such as `gemma4-agent`, OpenCode is also configured to accept image attachments. The generated model entries declare:
+For multimodal models such as `qwen38-27b`, OpenCode is also configured to accept image attachments. The generated model entries declare:
 
 - `attachment: true`
 - `modalities.input: ["text", "image"]`
@@ -102,9 +100,9 @@ Run the one-time installer:
 
 During setup:
 
-- you may be prompted to download the default Gemma base model
+- you may be prompted to download the default Qwen3.8 base model
 - the script writes shell config entries for `~/.ollama_env`
-- OpenCode is configured to use `ollama/gemma4-agent`
+- OpenCode is configured to use `ollama/qwen38-27b`
 - the generated `~/.ollama_env` defaults to the single-request performance profile
 
 After setup, open a new shell or reload your shell config:
@@ -164,7 +162,7 @@ Show the interactive chooser:
 Switch directly to a known alias:
 
 ```bash
-./ollama.sh switch qwen-coder
+./ollama.sh switch qwen36-27b
 ```
 
 When you switch models, the script:
@@ -185,6 +183,8 @@ The current built-in aliases are:
 - `gemma4-edge`
 - `qwen-coder`
 - `qwen3`
+- `qwen38-27b`
+- `qwen36-27b`
 - `qwen3-fast`
 - `deepseek-r1`
 - `deepseek-r1-70b`
@@ -208,7 +208,7 @@ These scripts touch files outside the repository:
   Adds a line to source `~/.ollama_env` if the file exists and does not already include it.
 
 - `~/.ollama_modelfiles/`
-  Stores generated Modelfiles for local aliases like `gemma4-agent` or `qwen-coder`.
+  Stores generated Modelfiles for local aliases like `qwen38-27b` or `qwen-coder`.
 
 - `~/.config/opencode/opencode.json`
   Stores the OpenCode configuration and current default model.
@@ -226,6 +226,7 @@ These scripts touch files outside the repository:
 
 - `setup.sh` is intended as a bootstrap script, not something you run every day.
 - `ollama.sh start` does not use `brew services`; it starts `ollama serve` in the background directly.
+- `ollama.sh start` will restart an already-running Ollama server if it was launched without the script's expected runtime profile, so the compatibility flags from `~/.ollama_env` actually take effect.
 - `ollama.sh stop` tries to unload models before stopping the server.
 - `ollama.sh start` only warms a model if OpenCode is configured with a valid `ollama/<alias>` model string.
 - `ollama.sh switch` updates OpenCode config, so your next `start` uses the newly selected model.
@@ -245,6 +246,15 @@ Then verify status:
 ```bash
 ./ollama.sh status
 ```
+
+If the server is already running but model warmup fails, run:
+
+```bash
+./ollama.sh stop
+./ollama.sh start
+```
+
+That forces the server to restart under the script-managed runtime profile instead of reusing a stale `ollama serve` process.
 
 ### The script says a model is missing
 
